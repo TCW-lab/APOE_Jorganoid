@@ -1,0 +1,40 @@
+#!/bin/bash -l
+#Parameters of the Jobs :
+
+#$-P tcwlab
+#$-j y
+#$-l h_rt=48:00:00
+#$-o  ./logs/01-CellRangerCount_S2.log
+#$-pe omp 16
+
+
+#Modules to load:
+
+module load bcl2fastq/2.20
+module load cellranger/7.2.0
+
+
+#keep track of some information just in case anything goes wrong
+echo "=========================================================="
+echo "Starting on : $(date)"
+echo "Running on node : $(hostname)"
+echo "Current directory : $(pwd)"
+echo "Current job ID : $JOB_ID"
+echo "Current job name : $JOB_NAME"
+if [[ -n "${SGE_TASK_ID}" && $SGE_TASK_ID != "undefined" ]]; then
+    echo "Task index number : $SGE_TASK_ID"
+fi
+if [[ -n "${SGE_TASK_LAST}" && $SGE_TASK_LAST != "undefined" ]]; then
+    echo "Total task number : $SGE_TASK_LAST"
+fi
+echo "=========================================================="
+
+echo "----- Processing of S2 -----"
+cellranger count --id S2 --transcriptome /projectnb/tcwlab/RefData/10XGenomics/refdata-gex-GRCh38-2020-A/ --fastqs /projectnb/tcwlab/RawData/RawRNAseq/scRNAseq/APOE_Jorganoid/data/data/230804_A00220_0594_BHG5H3DSX7/ --sample 22 --output-dir outputs/01-CellRangerCount/S2 --localcores 16 --localmem 128
+
+
+
+echo "=========================================================="
+echo "Finished Analysis for $PROJ_NAME on : $(date)"
+echo "=========================================================="
+
