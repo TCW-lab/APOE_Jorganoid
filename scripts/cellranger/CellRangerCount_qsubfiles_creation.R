@@ -1,5 +1,5 @@
-out<-'outputs/01-CellRangerCount'
-dir.create(out)
+out<-'outputs/CellRangerCount'
+dir.create(out,recursive = T)
 
 source('../../utils/r_utils.R')
 
@@ -42,10 +42,10 @@ cmds<-sapply(samples_dt$sample_id, function(id){
 #create the qsub files
 
 for(sample in names(cmds)){
-  qsub_file<-fp('scripts/cellranger/',ps('01-CellRangerCount_',sample,'.qsub'))
+  qsub_file<-fp('scripts/cellranger/',ps('CellRangerCount_',sample,'.qsub'))
   CreateJobFile(cmds[sample],
                 file = qsub_file,
-                nThreads = 16,maxHours = 48,
+                nThreads = 16,maxHours = 72,
                 modules = c('bcl2fastq/2.20','cellranger/7.2.0'))
   
   
@@ -53,11 +53,11 @@ for(sample in names(cmds)){
 
 #run the qsub files
 for(sample in names(cmds)){
-  qsub_file<-fp('scripts/cellranger/',ps('01-CellRangerCount_',sample,'.qsub'))
+  qsub_file<-fp('scripts/cellranger/',ps('CellRangerCount_',sample,'.qsub'))
  
   RunQsub(qsub_file,job_name = ps('CRcount',sample))
   
   
 }
 
-
+#sapply(2696900:(2696900+24), function(i)system(paste('qdel',i)))

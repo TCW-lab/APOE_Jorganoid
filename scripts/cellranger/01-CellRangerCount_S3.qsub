@@ -3,7 +3,7 @@
 
 #$-P tcwlab
 #$-j y
-#$-l h_rt=48:00:00
+#$-l h_rt=72:00:00
 #$-o  ./logs/01-CellRangerCount_S3.log
 #$-pe omp 16
 
@@ -30,7 +30,7 @@ fi
 echo "=========================================================="
 
 echo "----- Processing of S3 -----"
-cellranger count --id S3 --transcriptome /projectnb/tcwlab/RefData/10XGenomics/refdata-gex-GRCh38-2020-A/ --fastqs /projectnb/tcwlab/RawData/RawRNAseq/scRNAseq/APOE_Jorganoid/data/data/230804_A00220_0594_BHG5H3DSX7/ --sample 19 --output-dir outputs/01-CellRangerCount/S3 --localcores 16 --localmem 128
+cellranger count --id S3 --transcriptome /projectnb/tcwlab/RefData/10XGenomics/refdata-gex-GRCh38-2020-A/ --fastqs /projectnb/tcwlab/RawData/RawRNAseq/scRNAseq/APOE_Jorganoid/data/data/230804_A00220_0594_BHG5H3DSX7/ --sample 19 --output-dir outputs/CellRangerCount/S3 --localcores 16 --localmem 128
 
 
 
