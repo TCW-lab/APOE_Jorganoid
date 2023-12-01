@@ -7,7 +7,9 @@ library(tools)
 library(Seurat)
 library(data.table)
 library(ggplot2)
+library(SingleCellExperiment)
 
+#1) load the matrix to produce the knee plot
 mat<-ReadMtx('outputs/15_S5/af_quant/alevin/quants_mat.mtx',
         cells ='outputs/15_S5/af_quant/alevin/quants_mat_cols.txt' ,
         features = 'outputs/15_S5/af_quant/alevin/quants_mat_rows.txt',feature.column=1
@@ -22,28 +24,40 @@ cells_count[,cell_rank:=rank(-count)]
 #plot the 'knee' plot
 ggplot(cells_count,aes(x=cell_rank,y=count))+geom_line()+
   scale_x_log10()+scale_y_log10()+theme_bw()+
-  geom_hline(yintercept = 1000) + ggtitle('S5')
+  geom_hline(yintercept = 900) + ggtitle('S5')
+
 #here test different threshold to find the best one that is between the 2 knees, or at the middle the first knee
 #we expecrt cutoff between 100 and 2000 UMIS (can be more if the sequencing depth or cell RNA amount is bigger)
 #we expect to have between 2000 and 25k cells
-cell_cutoff=1000
+cell_cutoff=900
 sum(rowSums(mat)>cell_cutoff) #number of cells 
 
 cells<-rownames(mat)[rowSums(mat)>cell_cutoff] 
-#cellS5<-cells_count[count>cell_cutoff]$cell #same
-matf<-mat[cells,]
 
-S5<-CreateSeuratObject(t(as.matrix(matf)),project = 'Jorganoid')
+
+#2) load the counts matrix by merging both spliced and unspliced count 
+#use  fishpond::loadFry() function for that, include in SingleCellExperiment package
+custom_format <- list("counts" = c("U","S","A"))
+
+sce <- fishpond::loadFry("outputs/15_S5/af_quant/",
+                         outputFormat = custom_format)
+
+#create the seurat object by filtering for selected cells
+S5<-CreateSeuratObject(counts(sce[,cells]),project = 'Jorganoid')
+S5
+
 # An object of class Seurat 
-# 174657 features across 5460 samples within 1 assay 
-# Active assay: RNA (174657 features, 0 variable features)
+# 58219 features across 8979 samples within 1 assay 
+# Active assay: RNA (58219 features, 0 variable features)
 # 1 layer present: counts
 S5
 saveRDS(S5,file.path(out,'S5.rds'))
 
 S5$sample<-'S5'
 
-#did for all
+
+
+#do that for all samples
 
 
 #Merge the Seurat objects
