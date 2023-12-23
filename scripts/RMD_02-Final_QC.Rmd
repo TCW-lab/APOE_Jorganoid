@@ -1,0 +1,616 @@
+---
+title: "Organoid scRNA-seq"
+output: word_document
+date: "2023-12-23"
+---
+
+## Step 0. Setting Up the Environment
+Begin by setting working directory and output directory.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{r, echo = TRUE}
+### Note: This is taken from Deepti Murthy and adapted by Andrew Gjelsteen,
+### most of the comments are hers ###
+###* Andrew's comments are denoted by ###*  *###
+#TCW Single-Cell RNA Seq Data
+#Dataset Source: TCW_14311_run1
+
+#Date: 11/10/22 - 11/13/22
+#Date: 1/1/23 (Altering Cluster Resolution)
+
+#Note, prior to this analysis:
+#The seurat_object.rds" object was created using RNA and HTO information, including
+#only those cells with at least 10 nUMI for any given HTO.
+#HTODemux was run using default parameters.
+#Across-sample Doublets and dropouts have been removed from the dataset.
+
+#In this analysis, I remove cells with high mitochondrial percentage and 
+## remove outliers, scale, normalize, and cluster.
+###
+#R version 4.3.1
+sessionInfo()
+
+#load libraries 
+library(dplyr)
+library(patchwork)
+library(ggplot2)
+library(gridExtra)
+library(Matrix)
+library(scales)
+library(cowplot)
+library(Seurat) #Seurat v.3.0
+library(RColorBrewer)
+library(BiocManager) #v 3.17
+library(tibble)
+library(patchwork)
+library(flexmix)
+library(miQC)
+library(singleCellTK)
+library(fgsea)
+library(singleCellTK)
+library(DropletUtils)
+library(SeuratData)
+library(tidyr)
+.libPaths()
+source("~/.Rprofile")
+
+
+setwd("/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/")
+
+dir <- "/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs"
+out<-'outputs/simpleafSeurat'
+
+```
+
+## Step 1: Read in Seurat Files, Combining them into one object, adding meta.data, and performing first QC steps:
+### Subsection 1: Reading in RDS files, adding meta.data, and merging them into one.
+This object will be used to be a point of comparison for before/after quality control steps.
+
+```{r, echo = TRUE}
+###* These are my individual samples' Seurat files. Produced by previous script. *###
+S1 <- readRDS(file = "./outputs/simpleafSeurat/sample1.rds")
+S2 <- readRDS(file = "./outputs/simpleafSeurat/sample2.rds")
+S3 <- readRDS(file = "./outputs/simpleafSeurat/sample3.rds")
+S4 <- readRDS(file = "./outputs/simpleafSeurat/sample4.rds")
+###* No Sample 5 (deemed poor quality by researchers)                       *###
+S6 <- readRDS(file = "./outputs/simpleafSeurat/sample6.rds")
+###* No Sample 7 (deemed poor quality by researchers)                       *###
+S8 <- readRDS(file = "./outputs/simpleafSeurat/sample8.rds")
+S9 <- readRDS(file = "./outputs/simpleafSeurat/sample9.rds")
+S10 <- readRDS(file = "./outputs/simpleafSeurat/sample10.rds")
+S11 <- readRDS(file = "./outputs/simpleafSeurat/sample11.rds")
+S12 <- readRDS(file = "./outputs/simpleafSeurat/sample12.rds")
+S13 <- readRDS(file = "./outputs/simpleafSeurat/sample13.rds")
+S14 <- readRDS(file = "./outputs/simpleafSeurat/sample14.rds")
+S15 <- readRDS(file = "./outputs/simpleafSeurat/sample15.rds")
+S16 <- readRDS(file = "./outputs/simpleafSeurat/sample16.rds")
+S17 <- readRDS(file = "./outputs/simpleafSeurat/sample17.rds")
+S18 <- readRDS(file = "./outputs/simpleafSeurat/sample18.rds")
+S19 <- readRDS(file = "./outputs/simpleafSeurat/sample19.rds")
+S20 <- readRDS(file = "./outputs/simpleafSeurat/sample20.rds")
+S21 <- readRDS(file = "./outputs/simpleafSeurat/sample21.rds")
+S22 <- readRDS(file = "./outputs/simpleafSeurat/sample22.rds")
+S23 <- readRDS(file = "./outputs/simpleafSeurat/sample23.rds")
+S24 <- readRDS(file = "./outputs/simpleafSeurat/sample24.rds")
+S25 <- readRDS(file = "./outputs/simpleafSeurat/sample25.rds")
+S26 <- readRDS(file = "./outputs/simpleafSeurat/sample26.rds")
+
+###* Proceed by defining APOE genotype groups.   *###
+APOE22_samples_group <- c("S3", "S9", "S12", "S15", "S21", "S25")
+APOE33_samples_group <- c("S1", "S8", "S14", "S16", "S19", "S23")
+APOE33Ch_samples_group <- c("S2", "S6", "S13", "S18", "S20", "S24")
+APOE44_samples_group <- c("S4", "S10", "S11", "S17", "S22", "S26")
+
+sample_names_group22 <- c("sample3", "sample9", "sample12", "sample15", "sample21", "sample25")
+sample_names_group33 <- c("sample1", "sample8", "sample14", "sample16", "sample19", "sample23")
+sample_names_group33Ch <- c("sample2", "sample6", "sample13", "sample18", "sample20", "sample24")
+sample_names_group44 <- c("sample4", "sample10", "sample11", "sample17", "sample22", "sample26")
+
+# APOE22: S3, S9, S12, S15, S21, S25
+# APOE33: S1, S8, S14, S16, S19, S23
+# APOE33Ch: S2, S6, S13, S18, S20, S24
+# APOE44: S4, S10, S11, S17, S22, S26 *##
+
+out <- "/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/simpleafSeurat/"
+
+###* Loop through each sample and add a metadata column for sample labels,
+###* then save each individual Seurat object again.
+###* This step is important, so that when we read in these files in Step 2,
+###* we will have proper meta.data assigned to them.
+
+# for APOE22
+for (i in seq_along(APOE22_samples_group)) {
+  object_name <- APOE22_samples_group[i]
+  sample_name <- sample_names_group22[i]
+  
+  eval(parse(text = paste0(object_name, "[['sample']] <- '", sample_name, "'")))
+  eval(parse(text = paste0(object_name, "[['genotype']] <- 'APOE22'")))
+
+  filename <- paste0(out, "APOE22_sample", i, ".rds")
+  eval(parse(text = paste0("saveRDS(", object_name, ", file = '", filename, "')")))
+}
+
+# for APOE33
+for (i in seq_along(APOE33_samples_group)) {
+  object_name <- APOE33_samples_group[i]
+  sample_name <- sample_names_group33[i]
+  
+  eval(parse(text = paste0(object_name, "[['sample']] <- '", sample_name, "'")))
+  eval(parse(text = paste0(object_name, "[['genotype']] <- 'APOE33'")))
+
+  filename <- paste0(out, "APOE33_sample", i, ".rds")
+  eval(parse(text = paste0("saveRDS(", object_name, ", file = '", filename, "')")))
+}
+
+# for APOE33Ch
+for (i in seq_along(APOE33Ch_samples_group)) {
+  object_name <- APOE33Ch_samples_group[i]
+  sample_name <- sample_names_group33Ch[i]
+  
+  eval(parse(text = paste0(object_name, "[['sample']] <- '", sample_name, "'")))
+  eval(parse(text = paste0(object_name, "[['genotype']] <- 'APOE33Ch'")))
+
+  filename <- paste0(out, "APOE33Ch_sample", i, ".rds")
+  eval(parse(text = paste0("saveRDS(", object_name, ", file = '", filename, "')")))
+}
+
+# for APOE44
+for (i in seq_along(APOE44_samples_group)) {
+  object_name <- APOE44_samples_group[i]
+  sample_name <- sample_names_group44[i]
+  
+  eval(parse(text = paste0(object_name, "[['sample']] <- '", sample_name, "'")))
+  eval(parse(text = paste0(object_name, "[['genotype']] <- 'APOE44'")))
+
+  filename <- paste0(out, "APOE44_sample", i, ".rds")
+  eval(parse(text = paste0("saveRDS(", object_name, ", file = '", filename, "')")))
+}
+
+
+##* Merge all Seurat objects into one *##
+##* Can easily process it as one object *##
+##* 
+organoid0 <- merge(S1, y = c(S2, S3, S4, S6, S8, S9, S10,
+                             S11, S12, S13, S14, S15, S16, S17, S18, S19,
+                             S20, S21, S22, S23, S24, S25, S26), 
+                   add.cell.ids = c("S1", "S2", "S3", "S4", "S6", "S8", "S9", "S10",
+                                    "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19",
+                                    "S20", "S21", "S22", "S23", "S24", "S25", "S26"),
+                   project = "APOE_Jorganoid"
+)
+
+###* save the merged objects' Seurat file as organoid0
+out <- "/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/simpleafSeurat/"
+filename = 'organoid0.rds'
+saveRDS(organoid0, file.path(out, filename))
+
+
+
+```
+
+Now that we have combined our Seurat objects into one composite Seurat object, with genotype and sample identifiers added, and saved it as organoid0.rds, we can restart our R session and load the saved Seurat file using the readRDS() function in the Seurat library.
+
+### Subsection 2: Labeling Mitochondrial Percentage
+
+In my experience working with this particular dataset, I had to convert ENSEMBL identifiers to gene symbol identifiers. Strangely enough, the genes which correspond to mitochondrial DNA genes, which are normally denoted by the 'MT-' prefix, were not denoted by this prefix. In order to handle this unusual situation, I created a list of all MT DNA ENSEMBL IDs and gene symbols, then scanned through the Seurat object and used these to identify mtDNA percentages. Below is my method of doing this, with Deepti's original method, which is what you will most likely be using.
+
+```{r, echo=FALSE}
+### Note: A lot of the mitochondrial genes, when undergoing the mapping of 
+### ENSEMBL_IDs to gene symbols, somehow got excluded from this process.
+### In order to deal with this, we will define a list of all the ENSEMBL IDs AND
+### their gene symbols for
+### all 37 Human Mitochondrial genes
+mt_gene_names <- c(
+  "ENSG00000198888", # ND1
+  "ENSG00000198763", # ND2
+  "ENSG00000198804", # COX1
+  "ENSG00000198712", # COX2
+  "ENSG00000228253", # ATP8
+  "ENSG00000198899", # ATP6
+  "ENSG00000198938", # COX3
+  "ENSG00000198840", # ND3
+  "ENSG00000212907", # ND4L
+  "ENSG00000198886", # ND4
+  "ENSG00000198786", # ND5
+  "ENSG00000198695", # ND6
+  "ENSG00000198727", # CYTB
+  "ENSG00000210049", # MT-TF
+  "ENSG00000210082", # MT-TV
+  "ENSG00000209082", # MT-TL1
+  "ENSG00000198888", # MT-TR
+  "ENSG00000210100", # MT-TN
+  "ENSG00000210107", # MT-TG
+  "ENSG00000210112", # MT-TL2
+  "ENSG00000210117", # MT-TS1
+  "ENSG00000210127", # MT-TV
+  "ENSG00000210135", # MT-TE
+  "ENSG00000210144", # MT-TS2
+  "ENSG00000210151", # MT-TH
+  "ENSG00000210154", # MT-TD
+  "ENSG00000210156", # MT-TK
+  "ENSG00000210164", # MT-TM
+  "ENSG00000210174", # MT-TI
+  "ENSG00000210184", # MT-TT
+  "ENSG00000210191", # MT-TW
+  "ENSG00000210194", # MT-TC
+  "ENSG00000210211", # MT-TY
+  "ENSG00000210228", # MT-TA
+  "ENSG00000210243", # MT-TQ
+  "ENSG00000198899", # MT-RNR1 (12S rRNA)
+  "ENSG00000198763",  # MT-RNR2 (16S rRNA)
+  "ND1", "ND2", "COX1", "COX2", "ATP8", "ATP6", "COX3", 
+  "ND3", "ND4L", "ND4", "ND5", "ND6", "CYTB",
+  "TF", "TV", "TL1", "TR", "TN", "TG", "TL2", "TS1", "TV",
+  "TE", "TS2", "TH", "TD", "TK", "TM", "TI", "TT", "TW", 
+  "TC", "TY", "TA", "TQ", "RNR1", "RNR2"
+)
+
+gene_names <- rownames(organoid0@assays$RNA@counts)
+gene_names
+###* Filter gene names based on mitochondrial ENSEMBL IDs/gene symbols list *###
+mt_genes <- gene_names[gene_names %in% mt_gene_names]
+
+# Print the mitochondrial genes
+print(mt_genes)
+###* Assign percent.mt and percent.ribo to the organoid0 object:            *###
+###* 
+# Set Idents, calculate MT and Ribosomal percentages
+Idents(organoid0) <- organoid0$orig.ident
+
+# Subset mt_gene_names to include only genes present in the Seurat object
+valid_mt_gene_names <- mt_gene_names[mt_gene_names %in% rownames(organoid0[["RNA"]]@counts)]
+
+# Recalculate the percentage of mitochondrial genes
+organoid0[["percent.mt"]] <- PercentageFeatureSet(organoid0, features = valid_mt_gene_names)
+
+###* Step to add metadata of each percentage ribosomal RNA:
+organoid0[["percent.ribo"]] <- PercentageFeatureSet(organoid0, pattern = "^RP[SL]")
+```
+
+Deepti's method for doing this (what you will most likely be using):
+
+```{r, echo=TRUE}
+###* Deepti's original method for labeling mitochondrial DNA percentages: *###
+#label MT percent in each cell
+organoid0[["percent.mt"]] <- PercentageFeatureSet(organoid0, pattern = "^MT-")
+###* Save RDS file again to save it with this new metadata added.
+saveRDS(organoid0, file.path(out, filename))
+```
+
+
+
+
+### Subsection 3: Making Violin Plots for Seurat data before undergoing QC:
+
+When working with our Seurat scRNA-seq data, we will want to save violin plots of the object before we perform Quality Control (QC) steps. This is essential to quantify how many cells were recovered following the QC process. 
+
+```{r, echo = TRUE}
+# Loop through each genotype
+library(Seurat)
+library(ggplot2)
+library(reshape2)
+
+# Output directory
+out <- "/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/images/"  # Replace with your actual 
+
+# Define the features to plot
+features <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
+
+# Loop through each genotype and make violin plots for each APOE genotype
+for (genotype in unique_genotypes) {
+  # Subset Seurat object by genotype
+  organoid_subset <- subset(organoid0, subset = genotype == genotype)
+  
+  # Create violin plots
+  vps <- VlnPlot(object = organoid_subset, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, slot = "counts", pt.size = 0)
+  
+  # Modify the plots to spread them out evenly
+  vps <- vps + plot_layout(guides = 'collect') & theme(legend.position = 'none')
+  
+  # Add the genotype as the overall figure title
+  combined_plot <- vps + plot_annotation(title = genotype, theme = theme(plot.title = element_text(hjust = 0.5)))
+  
+  # Construct the full path for the output file
+  output_file_path <- file.path(out, paste0("before_QC_violin_plots_", genotype, ".png"))
+  
+  # Save the combined plot to the specified directory
+  ggsave(output_file_path, plot = combined_plot, width = 12, height = 6, units = "in")
+}
+
+```
+
+Now that we have merged our object, assigned metadata labels, saved the before-QC violin plots, and saved our RDS object, we can proceed with performing the actual QC.
+
+## Step 2: Perform QC Across All Samples then visualize results
+
+Let's begin by restarting our R session. This way we can clear the cache memory, since this file is very large (~15GB in my case). We will begin by loading in the .rds object, creating a dataframe which will store the before/after QC metrics. Then we will write a loop, which will iterate through the samples and perform QC while saving the before / after numbers of cells.
+
+### Subsection 1: 
+```{r, echo = TRUE}
+library(Seurat)
+library(dplyr)
+
+organoid0 <- readRDS('outputs/simpleafSeurat/organoid0.rds')
+# List of sample identifiers
+samples <- c("1", "2", "3", "4", "6", "8", "9", "10",
+             "11", "12", "13", "14", "15", "16", "17", "18", "19",
+             "20", "21", "22", "23", "24", "25", "26")
+
+# Initialize a data frame to store cell counts
+cell_counts <- data.frame(sample = character(),
+                          cells_before_QC = integer(),
+                          cells_after_QC = integer(),
+                          stringsAsFactors = FALSE)
+
+# Initialize variables for combined statistics
+stats <- list(
+  APOE22 = list(cells_before = 0, cells_after = 0, genes_before = vector(), genes_after = vector()),
+  APOE33 = list(cells_before = 0, cells_after = 0, genes_before = vector(), genes_after = vector()),
+  APOE33Ch = list(cells_before = 0, cells_after = 0, genes_before = vector(), genes_after = vector()),
+  APOE44 = list(cells_before = 0, cells_after = 0, genes_before = vector(), genes_after = vector())
+)
+
+```
+
+Note, we defined our samples group vectors before, but I'll include it again here in case you restarted your R session and need to run it again. This is a crucial step because we need to keep these data to 
+
+```{r, echo = TRUE}
+###* Define our sample groups again
+APOE22_samples_group <- c("S3", "S9", "S12", "S15", "S21", "S25")
+APOE33_samples_group <- c("S1", "S8", "S14", "S16", "S19", "S23")
+APOE33Ch_samples_group <- c("S2", "S6", "S13", "S18", "S20", "S24")
+APOE44_samples_group <- c("S4", "S10", "S11", "S17", "S22", "S26")
+
+sample_names_group22 <- c("sample3", "sample9", "sample12", "sample15", "sample21", "sample25")
+sample_names_group33 <- c("sample1", "sample8", "sample14", "sample16", "sample19", "sample23")
+sample_names_group33Ch <- c("sample2", "sample6", "sample13", "sample18", "sample20", "sample24")
+sample_names_group44 <- c("sample4", "sample10", "sample11", "sample17", "sample22", "sample26")
+
+```
+
+Now, this step is fairly complex. The general breakdown of what is occurring is this:
+* Each individual rds file is read in (individual meaning the individual sample files).
+* Number of cells before QC is recorded for each sample.
+* Genes which are only expressed in >3 cells are filtered out.
+* Percentage of mtDNA genes is recalculated (in case it was lost before -- This step is likely unnecessarily).
+* Cells with greater than 5% mtDNA are filtered out.
+* Upper limit of nCount_RNA (corresponds to number of RNA molecules detected per cell) is set to 99.5th percentile. Lower limit is defined by the CalculateBarcodeInflections() function (a function within the Seurat library).
+* Cells are then filtered based on having nCount_RNA between these two cutoffs.
+* Append the cell count information to the dataframe we defined in the previous subsection (just above here).
+
+```{r, echo = TRUE}
+out <- '/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/simpleafSeurat'
+
+# Loop over each sample
+for (sample_id in samples) {
+  # Load the Seurat object
+  T_QC <- readRDS(file = paste0("./outputs/simpleafSeurat/sample", sample_id, ".rds"))
+  
+  # Record the number of cells before QC
+  cells_before <- ncol(T_QC)
+  
+  # Filter genes expressed in less than 3 cells
+  # Using sparse matrix directly to avoid memory issues
+  raw_counts_mat <- T_QC@assays$RNA@counts
+  genes_to_keep <- Matrix::colSums(raw_counts_mat != 0) >= 3
+  T_QC <- subset(T_QC, features = rownames(T_QC)[genes_to_keep])
+  
+  # Set Idents, calculate MT and Ribosomal percentages
+  Idents(T_QC) <- T_QC$orig.ident
+  # Subset mt_gene_names to include only genes present in the Seurat object
+  valid_mt_gene_names <- mt_gene_names[mt_gene_names %in% rownames(T_QC[["RNA"]]@counts)]
+  
+  # Recalculate the percentage of mitochondrial genes
+  T_QC[["percent.mt"]] <- PercentageFeatureSet(T_QC, features = valid_mt_gene_names)
+  
+  # Filter out cells with greater than 5% mtDNA
+  T_QC <- subset(T_QC, subset = percent.mt <= 5)
+  
+  # Assign percent.ribo to cells
+  T_QC[["percent.ribo"]] <- PercentageFeatureSet(T_QC, pattern = "^RP[SL]")
+  
+  # Calculate upper limit, set at 99.5 percentile
+  upper_limit <- quantile(T_QC@meta.data$nCount_RNA, probs = 0.995)
+  
+  # Calculate Barcode Inflections for lower limit
+  T_QC <- CalculateBarcodeInflections(
+    T_QC,
+    barcode.column = "nCount_RNA",
+    group.column = "orig.ident",
+    threshold.low = 1000,
+    threshold.high = NULL
+  )
+  T_QC <- SubsetByBarcodeInflections(object = T_QC)
+  
+  # Filter cells based on RNA count limits
+  T_QC <- subset(T_QC, subset = nCount_RNA < upper_limit)
+  
+  # Record the number of cells after QC
+  cells_after <- ncol(T_QC)
+  
+  #save modified object
+  filename <- paste0("QC_sample", sample_id, ".rds")
+  saveRDS(T_QC, file.path(out, filename))
+  
+  # Append the cell count information to the data frame
+  cell_counts <- rbind(cell_counts, data.frame(sample = sample_id,
+                                               cells_before_QC = cells_before,
+                                               cells_after_QC = cells_after))
+}
+
+# Save the cell counts data frame
+output_dir <- "/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/"
+write.csv(cell_counts, file = paste0(output_dir, "cell_counts.csv"), row.names = FALSE)
+# Convert stats to a data frame
+data_frame_stats <- data.frame(APOE_group = names(stats),
+                               cells_before = sapply(stats, function(x) x$cells_before),
+                               cells_after = sapply(stats, function(x) x$cells_after),
+                               genes_before = sapply(stats, function(x) length(x$genes_before)),
+                               genes_after = sapply(stats, function(x) length(x$genes_after)))
+
+# Save the data frame
+write.csv(data_frame_stats, file = paste0(output_dir, "APOE_group_stats.csv"), row.names = FALSE)
+
+```
+
+### Subsection 2: Read the new QC'd files, then merge into new object, "organoid1.rds"
+
+Now that we have performed QC across all these samples, we likely have a lot of memory being used in our R cache. Let's clear it and begin by reading in these new "QC_sampleX".rds objects, then proceed by merging them into a new composite rds object, named organoid1.
+
+```{r, echo = TRUE}
+S1 <- readRDS('outputs/simpleafSeurat/QC_sample1.rds')
+S2 <- readRDS('outputs/simpleafSeurat/QC_sample2.rds')
+S3 <- readRDS('outputs/simpleafSeurat/QC_sample3.rds')
+S4 <- readRDS('outputs/simpleafSeurat/QC_sample4.rds')
+S6 <- readRDS('outputs/simpleafSeurat/QC_sample6.rds')
+S8 <- readRDS('outputs/simpleafSeurat/QC_sample8.rds')
+S9 <- readRDS('outputs/simpleafSeurat/QC_sample9.rds')
+S10 <- readRDS('outputs/simpleafSeurat/QC_sample10.rds')
+S11 <- readRDS('outputs/simpleafSeurat/QC_sample11.rds')
+S12 <- readRDS('outputs/simpleafSeurat/QC_sample12.rds')
+S13 <- readRDS('outputs/simpleafSeurat/QC_sample13.rds')
+S14 <- readRDS('outputs/simpleafSeurat/QC_sample14.rds')
+S15 <- readRDS('outputs/simpleafSeurat/QC_sample15.rds')
+S16 <- readRDS('outputs/simpleafSeurat/QC_sample16.rds')
+S17 <- readRDS('outputs/simpleafSeurat/QC_sample17.rds')
+S18 <- readRDS('outputs/simpleafSeurat/QC_sample18.rds')
+S19 <- readRDS('outputs/simpleafSeurat/QC_sample19.rds')
+S20 <- readRDS('outputs/simpleafSeurat/QC_sample20.rds')
+S21 <- readRDS('outputs/simpleafSeurat/QC_sample21.rds')
+S22 <- readRDS('outputs/simpleafSeurat/QC_sample22.rds')
+S23 <- readRDS('outputs/simpleafSeurat/QC_sample23.rds')
+S24 <- readRDS('outputs/simpleafSeurat/QC_sample24.rds')
+S25 <- readRDS('outputs/simpleafSeurat/QC_sample25.rds')
+S26 <- readRDS('outputs/simpleafSeurat/QC_sample26.rds')
+
+###* At this point, let's just combine our QC'd samples into an .rds called *###
+###* organoid1.rds and save it                                              *###
+
+organoid1 <- merge(S1, y = c(S2, S3, S4, S6, S8, S9, S10,
+                             S11, S12, S13, S14, S15, S16, S17, S18, S19,
+                             S20, S21, S22, S23, S24, S25, S26), 
+                   add.cell.ids = c("S1", "S2", "S3", "S4", "S6", "S8", "S9", "S10",
+                                    "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19",
+                                    "S20", "S21", "S22", "S23", "S24", "S25", "S26"),
+                   project = "APOE_Jorganoid"
+)
+
+
+out <- '/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/'
+saveRDS(organoid1,file.path(out,'organoid1.rds'))
+
+```
+
+### Subsection 3: Visualizing Results of QC:
+
+Let's create the same Violin plots we did before, but now with the QC'd objects. Begin by checking our organoid1 object to just confirm that we do indeed have the genotype meta.data stored:
+
+```{r, echo = TRUE}
+# Assuming organoid1 is your Seurat object and 'genotype' is a column in meta.data
+unique_genotypes <- unique(organoid1@meta.data$genotype)
+
+# Output directory
+out <- "/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/images/"  # Replace with your actual directory path
+
+# Define the features to plot
+features <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
+
+# Loop through each genotype
+for (genotype in unique_genotypes) {
+  # Subset Seurat object by genotype
+  organoid_subset <- subset(organoid1, subset = genotype == genotype)
+  
+  # Create violin plots
+  vps <- VlnPlot(object = organoid_subset, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, slot = "counts", pt.size = 0)
+  
+  # Modify the plots to spread them out evenly
+  vps <- vps + plot_layout(guides = 'collect') & theme(legend.position = 'none')
+  
+  # Add the genotype as the overall figure title
+  combined_plot <- vps + plot_annotation(title = genotype, theme = theme(plot.title = element_text(hjust = 0.5)))
+  
+  # Construct the full path for the output file
+  output_file_path <- file.path(out, paste0("after_QC_violin_plots_", genotype, ".png"))
+  
+  # Save the combined plot to the specified directory
+  ggsave(output_file_path, plot = combined_plot, width = 12, height = 6, units = "in")
+}
+
+
+```
+
+
+## Step 3: Dimensionality Reduction and Further Analysis
+
+Begin Step 3 by reading in the organoid1.rds quality-controlled object. Again, this is a good time to restart your R session.
+
+```{r, echo = TRUE}
+organoid1 <- readRDS('/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/organoid1.rds')
+library(Seurat)
+library(miQC)
+
+###* don't over-saturate your cache. Easier to rename all of these           *###
+# Assuming organoid1 is your Seurat object
+T_QC <- organoid1
+
+# Preprocessing steps
+T_QC <- NormalizeData(T_QC, verbose = FALSE)
+T_QC <- FindVariableFeatures(T_QC, selection.method = "vst", nfeatures = 2000)
+T_QC <- ScaleData(T_QC, features = rownames(T_QC), verbose = FALSE)
+
+# Dimensionality reduction
+T_QC <- RunPCA(T_QC, features = VariableFeatures(object = T_QC), verbose = FALSE)
+T_QC <- RunUMAP(T_QC, dims = 1:50)
+
+# Clustering
+T_QC <- FindNeighbors(T_QC, dims = 1:50, k.param = 30, verbose = FALSE)
+T_QC <- FindClusters(T_QC, resolution = 0.6, verbose = FALSE)
+###* Show in each cluster the genotype (extract from organoid2@meta.data$geno...*###
+###* Plot what is each genotype distribution in each cluster                *###
+###* She was using findCluster, did not do actual cellType annotation here. *###
+###* When you do UMAP, you can color after by Seurat cluster (must run her other code first) *###
+###* 
+###* Bring questions for Deepti for the meeting tomorrow
+# Visualization
+DimPlot(T_QC, reduction = "umap", group.by = "genotype")
+
+###* this is a good point to save our .rds object, this time as organoid2   *###
+saveRDS(T_QC,file.path(out,'organoid2.rds'))
+
+# ribo_counts <- as.data.frame(APOE22$percent.ribo)
+# colnames(ribo_counts) <- "percent.ribo" # Rename the column without using dplyr
+organoid2 <- readRDS('/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/outputs/simpleafSeurat/organoid2.rds')
+organoid2 <- T_QC
+
+#DimPlot(organoid2, reduction = "umap", group.by = "genotype")
+###* Let's take a look at the percent.RNA of the cells in the data          *###
+RNA_counts <- as.data.frame(organoid2$percent.RNA)
+colnames(RNA_counts) <- "percent.RNA"
+# Now you can plot without renaming
+ggplot(RNA_counts, aes(x = percent.RNA)) + 
+  geom_density() +
+  theme_bw() +
+  ggtitle("Percent RNA genes per cell")
+
+# PCA Visualization
+DimPlot(organoid2, reduction = "pca")
+
+# Adjust UMAP dimensions
+organoid2 <- RunUMAP(organoid2, dims = 1:15)
+DimPlot(organoid2, reduction = "umap")
+
+# Clustering
+organoid2 <- FindNeighbors(organoid2, dims = 1:15)
+organoid2 <- FindClusters(organoid2)
+
+# Quality Control Feature Plots
+plot1 <- FeatureScatter(organoid2, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(organoid2, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+pdf(file = "qcfeatureplots_filtered_object.pdf", width = 15, height = 10)
+plot1 + plot2
+dev.off()
+
+```
