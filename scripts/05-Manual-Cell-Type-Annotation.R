@@ -5,7 +5,7 @@
 
 ### Harmony Clusters
 ###
-setwd('/projectnb/organoidlab/LabMember/akg/APOE_Jorganoid_project/')
+setwd('/projectnb/tcwlab/LabMember/akg/APOE_Jorganoid_project/')
 # install.packages("harmony")
 library(harmony)
 library(Seurat)
